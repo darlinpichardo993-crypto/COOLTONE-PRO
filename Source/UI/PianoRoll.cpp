@@ -18,7 +18,9 @@ PianoRoll::PianoRoll (CooltoneProcessor& p) : proc (p)
 
 void PianoRoll::refresh()
 {
-    view = proc.getView();
+    auto nextView = proc.getView();
+    const bool newAnalysis = ! view || view->analysis != nextView->analysis;
+    view = std::move (nextView);
     lastVersion = proc.getViewVersion();
     shown.assign (view->notes.size(), 0.0);
     for (size_t i = 0; i < view->notes.size(); ++i)
@@ -32,6 +34,21 @@ void PianoRoll::refresh()
             if (! f.empty()) { std::sort (f.begin(), f.end()); v = f[f.size() / 2]; }
         }
         shown[i] = v;
+    }
+    // Centre and scale the piano roll around the newly analysed take. Without this,
+    // the default C6 view hides normal male/female vocal ranges (often C3-C5).
+    if (newAnalysis && ! view->notes.empty())
+    {
+        double lo = 127.0, hi = 0.0;
+        for (const auto& e : view->notes)
+        {
+            const double pitch = e.edit.hasTarget ? e.edit.targetMidi : e.note.midiPitch;
+            lo = std::min (lo, pitch); hi = std::max (hi, pitch);
+        }
+        const double margin = 2.0;
+        const double usableHeight = std::max (100.0, (double) plotBottom() - rulerH - 12.0);
+        pxPerSemi = juce::jlimit (7.0, 30.0, usableHeight / std::max (8.0, hi - lo + 2.0 * margin));
+        topMidi = hi + margin;
     }
     // drop selection entries that no longer exist
     for (auto it = sel.begin(); it != sel.end();) it = (*it >= (int) view->notes.size()) ? sel.erase (it) : std::next (it);
@@ -186,11 +203,26 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
     switch (tool)
     {
         case Tool::Pointer:
-            if (hit >= 0) { if (e.mods.isShiftDown()) { if (! sel.erase (hit)) sel.insert (hit); } else if (! sel.count (hit)) { sel.clear(); sel.insert (hit); } }
-            else { if (! e.mods.isShiftDown()) sel.clear(); marquee = true; marqueeRect = { e.position, e.position }; }
-            notifySelection(); break;
         case Tool::Pitch:
-            if (hit >= 0) { if (! sel.count (hit)) { sel.clear(); sel.insert (hit); } dragNotes = getSelection(); dragging = true; notifySelection(); }
+            if (hit >= 0)
+            {
+                if (e.mods.isShiftDown() && tool == Tool::Pointer)
+                {
+                    if (! sel.erase (hit)) sel.insert (hit);
+                }
+                else if (! sel.count (hit)) { sel.clear(); sel.insert (hit); }
+                // Dragging a note in either Pointer or Pitch mode moves its pitch.
+                // Alt-drag preserves the unsnapped target, matching the dedicated Pitch tool.
+                dragNotes = getSelection();
+                dragging = ! dragNotes.empty();
+                notifySelection();
+            }
+            else if (tool == Tool::Pointer)
+            {
+                if (! e.mods.isShiftDown()) sel.clear();
+                marquee = true; marqueeRect = { e.position, e.position };
+                notifySelection();
+            }
             break;
         case Tool::Split:   if (hit >= 0) { proc.editSplit (timeAt ((float) e.x)); sel.clear(); notifySelection(); } break;
         case Tool::Glue:    if (hit >= 0) { proc.editGlue (hit); sel.clear(); notifySelection(); } break;
