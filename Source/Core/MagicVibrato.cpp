@@ -153,7 +153,7 @@ int applyMagicVibrato (std::vector<EditNote>& notes, const std::vector<PitchFram
             // phrase heuristics would otherwise reject it as too short/non-terminal.
             // Preserve existing natural vibrato to avoid stacking two oscillators.
             const double duration = notes[i].note.endSec - notes[i].note.startSec;
-            if (! decision.apply && ! e.deleted && duration >= 0.25
+            if (! selection.empty() && ! decision.apply && ! e.deleted && duration >= 0.25
                 && ! noteHasNaturalVibrato (notes[i], fr, hop))
             {
                 decision.apply = true;
