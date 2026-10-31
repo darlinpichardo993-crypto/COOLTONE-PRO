@@ -147,12 +147,26 @@ int applyMagicVibrato (std::vector<EditNote>& notes, const std::vector<PitchFram
         if (inSel)
         {
             auto& e = notes[i].edit;
-            e.vibrato = dec[i].apply;
-            e.vibAmountScale = dec[i].amountScale; e.vibDelayScale = dec[i].delayScale;
-            e.vibStart = dec[i].apply ? dec[i].start : 0.0; e.vibEnd = 1.0;
+            MagicDecision decision = dec[i];
+            // An explicit note selection is an instruction, not merely a suggestion:
+            // allow Magic Vibrato on a usable sustained note even if the global
+            // phrase heuristics would otherwise reject it as too short/non-terminal.
+            // Preserve existing natural vibrato to avoid stacking two oscillators.
+            const double duration = notes[i].note.endSec - notes[i].note.startSec;
+            if (! decision.apply && ! e.deleted && duration >= 0.25
+                && ! noteHasNaturalVibrato (notes[i], fr, hop))
+            {
+                decision.apply = true;
+                decision.start = ms.style == 1 ? 0.35 : 0.0;
+                decision.amountScale = 0.85;
+                decision.delayScale = 0.65;
+            }
+            e.vibrato = decision.apply;
+            e.vibAmountScale = decision.amountScale; e.vibDelayScale = decision.delayScale;
+            e.vibStart = decision.apply ? decision.start : 0.0; e.vibEnd = 1.0;
             if (regenerate || e.vibSeed == 1) e.vibSeed = seedBase * 2654435761u + static_cast<std::uint32_t> (i) * 40503u + 17u;
         }
-        if (notes[i].edit.vibrato) ++count;
+        if (notes[i].edit.vibrato && (selection.empty() || inSel)) ++count;
     }
     return count;
 }
