@@ -1,0 +1,70 @@
+name: COOLTONE Windows Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure x64 Release
+        run: cmake -S . -B build -A x64 -DCOOLTONE_BUILD_TESTS=ON -DCOOLTONE_BUILD_PLUGIN=ON
+
+      - name: Build VST3, Standalone and tests
+        run: cmake --build build --config Release --parallel
+
+      - name: Run core tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Verify build outputs
+        shell: pwsh
+        run: |
+          $vst3 = "build/COOLTONE_artefacts/Release/VST3/COOLTONE.vst3"
+          $standalone = "build/COOLTONE_artefacts/Release/Standalone/COOLTONE.exe"
+          if (!(Test-Path $vst3)) { throw "VST3 bundle missing: $vst3" }
+          if (!(Test-Path $standalone)) { throw "Standalone executable missing: $standalone" }
+          Get-ChildItem $vst3 -Recurse | Select-Object FullName, Length
+          Get-Item $standalone | Select-Object FullName, Length
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Setup.exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "Inno Setup compiler not found: $iscc" }
+          & $iscc "installer/COOLTONE.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+          if (!(Test-Path "dist/COOLTONE_Setup.exe")) { throw "Setup.exe was not generated" }
+
+      - name: Prepare portable package
+        shell: pwsh
+        run: |
+          $stage = "dist/COOLTONE_portable"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "build/COOLTONE_artefacts/Release/VST3/COOLTONE.vst3" $stage -Recurse
+          Copy-Item "build/COOLTONE_artefacts/Release/Standalone/COOLTONE.exe" $stage
+          Copy-Item "README.md" $stage
+          Compress-Archive -Path "$stage/*" -DestinationPath "dist/COOLTONE_portable.zip" -Force
+
+      - name: Upload installer and portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: COOLTONE-Windows-Release
+          path: |
+            dist/COOLTONE_Setup.exe
+            dist/COOLTONE_portable.zip
+          if-no-files-found: error
+          retention-days: 30
