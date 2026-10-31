@@ -113,7 +113,7 @@ CooltoneEditor::CooltoneEditor (CooltoneProcessor& p) : juce::AudioProcessorEdit
     for (auto id : { ct::pVibAmount, ct::pVibRate, ct::pVibDepth, ct::pVibDelay, ct::pVibAttack, ct::pVibRelease, ct::pVibShape, ct::pVibRandom,
                      ct::pVibHuman, ct::pVibSpeed, ct::pVibSmooth, ct::pVibVariation, ct::pVibPhase, ct::pVibNoteSens, ct::pVibDurSens, ct::pVibStability })
         addParam (vib, id);
-    addParam (vib, ct::pVibKeep);
+    addParam (vib, ct::pVibKeepOrig);
     vib->add (makeButton ("MAGIC VIBRATO", [this]
     {
         const int n = proc.editMagicVibrato (roll.getSelection(), false);
