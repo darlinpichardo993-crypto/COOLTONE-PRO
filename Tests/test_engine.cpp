@@ -276,6 +276,24 @@ TEST (manual_target_and_transpose_and_delete)
 }
 
 // ---------------- Magic Vibrato intelligence ----------------
+TEST (magic_vibrato_explicit_selection_applies_to_sustained_note)
+{
+    const double sr = 44100;
+    auto clip = melody (sr, { { 57, 0.45, 0.0 } });
+    auto an = analyseClip (clip);
+    CHECK (an.notes.size() == 1);
+    auto notes = an.notes;
+    MagicSettings ms;
+    const int applied = applyMagicVibrato (notes, an.frames, an.hop, ms, { 0 }, false, 123);
+    CHECK (applied == 1);
+    CHECK (notes[0].edit.vibrato);
+    Settings s;
+    s.set (pVibDepth, 50); s.set (pVibDelay, 0); s.set (pVibAttack, 0);
+    auto rendered = renderProject (clip, an, notes, s);
+    double deviation = 0.0;
+    medianPitchCents (rendered.ch[0], sr, midiToHz (57), 0.12, 0.38, &deviation);
+    CHECK (deviation > 8.0);
+}
 TEST (magic_vibrato_picks_the_right_notes)
 {
     const double sr = 44100;
