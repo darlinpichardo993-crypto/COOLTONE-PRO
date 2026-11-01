@@ -20,7 +20,7 @@ Analysis analyseClip (const AudioClip& clip)
     for (std::size_t i = 0; i < n; ++i)
     {
         double sum = 0.0;
-        for (const auto& channel : clip.ch) sum += channel[i];
+        for (const auto& channel : clip.ch) if (std::isfinite (channel[i])) sum += channel[i];
         mono[i] = static_cast<float> (sum / static_cast<double> (clip.ch.size()));
     }
 
