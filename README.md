@@ -37,7 +37,7 @@ Mientras reproduces en FL, COOLTONE reemplaza la entrada por la toma procesada, 
 
 **Escalas**: 20 (Major, Natural/Harmonic/Melodic Minor, Pentatónicas, Major/Minor Blues, Dorian, Phrygian, Lydian, Mixolydian, Aeolian, Locrian, Ionian, Jazz*, Chromatic, Whole Tone, Diminished, Custom) + interruptores por nota + detección de tonalidad con confianza. *Jazz = bebop dominante (decisión de diseño).
 
-**Presets**: 25 de fábrica en 7 categorías (Artist Styles, Bachata, R&B, Pop, Emotional, Natural, Experimental): son conjuntos de parámetros originales inspirados en rasgos generales de interpretación, **no clonan voces ni artistas**. Presets de usuario: guardar, cargar, renombrar, borrar, importar, exportar (`.ctpreset`, también en `Presets/Factory/`).
+**Presets**: 26 de fábrica en 7 categorías (Artist Styles, Bachata, R&B, Pop, Emotional, Natural, Experimental): son conjuntos de parámetros originales inspirados en rasgos generales de interpretación, **no clonan voces ni artistas**. Presets de usuario: guardar, cargar, renombrar, borrar, importar, exportar (`.ctpreset`, también en `Presets/Factory/`).
 
 **Piano roll**: notas detectadas (contorno) y notas escuchadas (relleno), curva de pitch original y corregida (incluye vibrato), waveform, escala resaltada, cuadrícula por compás (BPM del host), zoom (Ctrl+rueda, Alt+rueda vertical), desplazamiento temporal (Shift+rueda), navegación con flechas/PageUp/PageDown/Home/End, paneo con botón derecho o central + arrastre, selección múltiple, Undo/Redo (Ctrl+Z / Ctrl+Y), play/loop de la selección.
 
