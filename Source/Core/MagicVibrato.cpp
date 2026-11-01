@@ -16,23 +16,55 @@ MagicSettings magicSettingsFromSettings (const Settings& s)
 
 bool measureNaturalVibrato (const EditNote& en, const std::vector<PitchFrame>& fr, double hop, double* rateHz, double* depthCents)
 {
+    if (fr.empty() || ! std::isfinite (hop) || hop <= 0.0) return false;
+    const std::size_t first = std::min (en.note.firstFrame, fr.size());
+    const std::size_t last = std::min (en.note.lastFrame, fr.size() - 1);
+    if (first > last) return false;
+
     std::vector<double> dev;
-    for (std::size_t k = en.note.firstFrame; k <= en.note.lastFrame; ++k)
-        if (fr[k].voiced) dev.push_back ((fr[k].midi - en.note.midiPitch) * 100.0);
-    if (dev.size() < static_cast<std::size_t> (0.4 / hop)) return false;
-    const std::size_t w = std::max<std::size_t> (3, static_cast<std::size_t> (0.3 / hop));
+    dev.reserve (last - first + 1);
+    for (std::size_t k = first; k <= last; ++k)
+        if (fr[k].voiced && std::isfinite (fr[k].midi))
+            dev.push_back ((fr[k].midi - en.note.midiPitch) * 100.0);
+    if (dev.size() < static_cast<std::size_t> (std::ceil (0.45 / hop))) return false;
+
+    // Remove slow intonation drift before measuring periodic modulation.
+    const std::size_t w = std::max<std::size_t> (3, static_cast<std::size_t> (std::lround (0.28 / hop)));
     std::vector<double> hp (dev.size());
     for (std::size_t i = 0; i < dev.size(); ++i)
     {
-        const std::size_t a = i > w / 2 ? i - w / 2 : 0, b = std::min (dev.size() - 1, i + w / 2);
-        double m = 0; for (std::size_t k = a; k <= b; ++k) m += dev[k];
-        hp[i] = dev[i] - m / static_cast<double> (b - a + 1);
+        const std::size_t a = i > w / 2 ? i - w / 2 : 0;
+        const std::size_t b = std::min (dev.size() - 1, i + w / 2);
+        double mean = 0.0;
+        for (std::size_t k = a; k <= b; ++k) mean += dev[k];
+        hp[i] = dev[i] - mean / static_cast<double> (b - a + 1);
     }
-    double e = 0; for (double v : hp) e += v * v;
-    const double rms = std::sqrt (e / static_cast<double> (hp.size()));
-    if (rms < 14.0) return false;
-    int zc = 0; for (std::size_t i = 1; i < hp.size(); ++i) if ((hp[i - 1] < 0) != (hp[i] < 0)) ++zc;
-    const double rate = 0.5 * zc / (static_cast<double> (hp.size()) * hop);
+    double energy = 0.0;
+    for (double v : hp) energy += v * v;
+    const double rms = std::sqrt (energy / static_cast<double> (hp.size()));
+    if (! std::isfinite (rms) || rms < 10.0) return false;
+
+    // A periodicity check is more reliable than zero-crossing count alone:
+    // scoops, consonants and random pitch noise should not be labelled vibrato.
+    const std::size_t minLag = std::max<std::size_t> (2, static_cast<std::size_t> (std::floor (1.0 / (8.0 * hop))));
+    const std::size_t maxLag = std::min<std::size_t> (hp.size() / 3,
+        static_cast<std::size_t> (std::ceil (1.0 / (4.0 * hop))));
+    if (maxLag <= minLag) return false;
+    double best = -1.0;
+    std::size_t bestLag = 0;
+    for (std::size_t lag = minLag; lag <= maxLag; ++lag)
+    {
+        double cross = 0.0, ea = 0.0, eb = 0.0;
+        for (std::size_t i = lag; i < hp.size(); ++i)
+        {
+            const double a = hp[i], b = hp[i - lag];
+            cross += a * b; ea += a * a; eb += b * b;
+        }
+        const double corr = cross / std::sqrt (std::max (1.0e-20, ea * eb));
+        if (corr > best) { best = corr; bestLag = lag; }
+    }
+    if (bestLag == 0 || best < 0.28) return false;
+    const double rate = 1.0 / (static_cast<double> (bestLag) * hop);
     if (rate < 4.0 || rate > 8.0) return false;
     if (rateHz) *rateHz = rate;
     if (depthCents) *depthCents = rms * std::sqrt (2.0);
