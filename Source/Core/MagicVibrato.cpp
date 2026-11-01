@@ -99,12 +99,24 @@ bool noteHasUsableVoicing (const EditNote& en, const std::vector<PitchFrame>& fr
 
 double notePitchSpread (const EditNote& en, const std::vector<PitchFrame>& fr, double hop)
 {
-    const std::size_t skip = static_cast<std::size_t> (0.03 / hop) + 1;
-    const std::size_t a = en.note.firstFrame + skip, b = en.note.lastFrame > skip ? en.note.lastFrame - skip : 0;
+    if (fr.empty() || ! std::isfinite (hop) || hop <= 0.0 || ! std::isfinite (en.note.midiPitch)) return 0.0;
+    const std::size_t first = std::min (en.note.firstFrame, fr.size());
+    const std::size_t last = std::min (en.note.lastFrame, fr.size() - 1);
+    if (first >= last) return 0.0;
+    const std::size_t skip = static_cast<std::size_t> (std::min (10000.0, std::floor (0.03 / hop))) + 1;
+    const std::size_t a = std::min (last, first + std::min (skip, last - first));
+    const std::size_t b = last > skip ? last - skip : first;
     if (b <= a) return 0.0;
-    double e = 0; std::size_t n = 0;
-    for (std::size_t k = a; k <= b; ++k) if (fr[k].voiced) { const double d = (fr[k].midi - en.note.midiPitch) * 100.0; e += d * d; ++n; }
-    return n ? std::sqrt (e / static_cast<double> (n)) : 0.0;
+    double energy = 0.0;
+    std::size_t count = 0;
+    for (std::size_t k = a; k <= b; ++k)
+        if (fr[k].voiced && std::isfinite (fr[k].midi))
+        {
+            const double cents = (fr[k].midi - en.note.midiPitch) * 100.0;
+            energy += cents * cents;
+            ++count;
+        }
+    return count ? std::sqrt (energy / static_cast<double> (count)) : 0.0;
 }
 
 std::vector<int> findRunEndings (const std::vector<EditNote>& notes)
