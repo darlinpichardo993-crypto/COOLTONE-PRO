@@ -222,17 +222,23 @@ void CooltoneProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     // ---- record voice (input is monitored: it stays in the buffer) ----
     if (capturing.load())
     {
-        if (captureStopRequested.exchange (false)) { capturing = false; captureFinished = true; }
-        else if (haveHost && ! hostPlaying) { if (capturePos.load() > 0) { capturing = false; captureFinished = true; } }
-        else
+        // Never block the audio thread. If the UI thread is preparing/finalizing a take,
+        // skip this callback rather than touching a buffer being resized or released.
+        juce::SpinLock::ScopedTryLockType captureTry (captureLock);
+        if (captureTry.isLocked() && capturing.load())
         {
-            const int pos = capturePos.load(), cap = captureBuffer.getNumSamples();
-            if (pos == 0) captureStartHost = haveHost ? hostPos : 0;
-            const int ncopy = std::max (0, std::min (n, cap - pos));
-            for (int c = 0; c < captureBuffer.getNumChannels(); ++c)
-                captureBuffer.copyFrom (c, pos, buffer, std::min (c, nch - 1), 0, ncopy);
-            capturePos.store (pos + ncopy);
-            if (ncopy < n || pos + ncopy >= cap) { capturing = false; captureFinished = true; }
+            if (captureStopRequested.exchange (false)) { capturing = false; captureFinished = true; }
+            else if (haveHost && ! hostPlaying) { if (capturePos.load() > 0) { capturing = false; captureFinished = true; } }
+            else
+            {
+                const int pos = capturePos.load(), cap = captureBuffer.getNumSamples();
+                if (pos == 0) captureStartHost = haveHost ? hostPos : 0;
+                const int ncopy = std::max (0, std::min (n, cap - pos));
+                for (int c = 0; c < captureBuffer.getNumChannels(); ++c)
+                    captureBuffer.copyFrom (c, pos, buffer, std::min (c, nch - 1), 0, ncopy);
+                capturePos.store (pos + ncopy);
+                if (ncopy < n || pos + ncopy >= cap) { capturing = false; captureFinished = true; }
+            }
         }
     }
 
@@ -393,24 +399,36 @@ std::shared_ptr<const ct::RenderOutput> CooltoneProcessor::currentRender() const
 void CooltoneProcessor::armCapture()
 {
     if (capturing.load()) return;
-    captureChannels = std::max (1, std::min (2, getTotalNumInputChannels()));
-    captureBuffer.setSize (captureChannels, (int) (currentSR * 180.0), false, true, false);
-    capturePos = 0; captureStopRequested = false; captureFinished = false;
-    internalPlaying = false;
-    capturing = true;
+    {
+        const juce::SpinLock::ScopedLockType captureGuard (captureLock);
+        captureChannels = std::max (1, std::min (2, getTotalNumInputChannels()));
+        captureBuffer.setSize (captureChannels, (int) (currentSR * 180.0), false, true, false);
+        capturePos = 0; captureStopRequested = false; captureFinished = false;
+        internalPlaying = false;
+        capturing = true;
+    }
     setStatus ("Recording (3 min max) - press stop when finished");
 }
 void CooltoneProcessor::stopCapture() { if (capturing.load()) captureStopRequested = true; }
 
 void CooltoneProcessor::finalizeCapture()
 {
-    const int n = capturePos.load();
-    if ((double) n < currentSR * 0.2) { setStatus ("Recording too short"); captureBuffer.setSize (0, 0); return; }
     auto c = std::make_shared<ct::AudioClip>();
-    c->sampleRate = (int) std::lround (currentSR);
-    for (int ch = 0; ch < captureBuffer.getNumChannels(); ++ch)
-        c->ch.emplace_back (captureBuffer.getReadPointer (ch), captureBuffer.getReadPointer (ch) + n);
-    captureBuffer.setSize (0, 0);
+    int n = 0;
+    {
+        // The callback may have set captureFinished just before returning. Waiting here is
+        // safe (message thread only) and guarantees it no longer references captureBuffer.
+        const juce::SpinLock::ScopedLockType captureGuard (captureLock);
+        n = capturePos.load();
+        if ((double) n >= currentSR * 0.2)
+        {
+            c->sampleRate = (int) std::lround (currentSR);
+            for (int ch = 0; ch < captureBuffer.getNumChannels(); ++ch)
+                c->ch.emplace_back (captureBuffer.getReadPointer (ch), captureBuffer.getReadPointer (ch) + n);
+        }
+        captureBuffer.setSize (0, 0);
+    }
+    if ((double) n < currentSR * 0.2) { setStatus ("Recording too short"); return; }
     { const juce::ScopedLock sl (jobLock); pendingClip = c; pendingClipPath = {}; pendingClipOffset = captureStartHost.load(); }
     setStatus ("Analyzing recording ...");
     worker.wake.signal();
