@@ -55,7 +55,7 @@ CooltoneProcessor::~CooltoneProcessor()
     for (int i = 0; i < ct::pCount; ++i) apvts.removeParameterListener (sp[(size_t) i].id, this);
     worker.signalThreadShouldExit();
     worker.wake.signal();
-    worker.stopThread (4000);
+    worker.stopThread (-1); // never destroy the processor while its worker still references it
 }
 
 ct::Settings CooltoneProcessor::readSettings() const
@@ -126,7 +126,12 @@ void CooltoneProcessor::timerCallback()
         }
     }
     if (dirty.exchange (false)) requestRender();
-    if (captureFinished.exchange (false)) finalizeCapture();
+    if (captureFinished.exchange (false))
+    {
+        try { finalizeCapture(); }
+        catch (const std::exception& e) { setStatus ("Could not finalize take: " + juce::String (e.what())); }
+        catch (...) { setStatus ("Could not finalize take: unexpected error"); }
+    }
 }
 
 // ---- user presets ----
@@ -430,17 +435,47 @@ std::shared_ptr<const ct::RenderOutput> CooltoneProcessor::currentRender() const
 void CooltoneProcessor::armCapture()
 {
     // Finalize a just-stopped take before reusing the capture buffer.
-    if (captureFinished.exchange (false)) finalizeCapture();
+    if (captureFinished.exchange (false))
+    {
+        try { finalizeCapture(); }
+        catch (const std::exception& e) { setStatus ("Could not finalize take: " + juce::String (e.what())); return; }
+        catch (...) { setStatus ("Could not finalize take: unexpected error"); return; }
+    }
     if (capturing.load()) return;
+
+    const double sr = currentSR.load();
+    if (! std::isfinite (sr) || sr < 8000.0 || sr > 384000.0)
+    { setStatus ("Cannot record: unsupported host sample rate"); return; }
+
+    constexpr std::uint64_t maxCaptureSamples = 50000000ull;
+    const int channels = std::max (1, std::min (2, getTotalNumInputChannels()));
+    const std::uint64_t maxFramesByMemory = maxCaptureSamples / static_cast<std::uint64_t> (channels);
+    const std::uint64_t requestedFrames = static_cast<std::uint64_t> (sr * 180.0);
+    const int frames = static_cast<int> (std::min (requestedFrames, maxFramesByMemory));
+    if (frames <= 0) { setStatus ("Cannot allocate recording buffer"); return; }
+
+    try
     {
         const juce::SpinLock::ScopedLockType captureGuard (captureLock);
-        captureChannels = std::max (1, std::min (2, getTotalNumInputChannels()));
-        captureBuffer.setSize (captureChannels, (int) (currentSR * 180.0), false, true, false);
+        captureChannels = channels;
+        captureBuffer.setSize (captureChannels, frames, false, true, false);
         capturePos = 0; captureStopRequested = false; captureFinished = false;
         internalPlaying = false;
         capturing = true;
     }
-    setStatus ("Recording (3 min max) - press stop when finished");
+    catch (const std::exception& e)
+    {
+        capturing = false;
+        setStatus ("Recording buffer allocation failed: " + juce::String (e.what()));
+        return;
+    }
+    catch (...)
+    {
+        capturing = false;
+        setStatus ("Recording buffer allocation failed");
+        return;
+    }
+    setStatus ("Recording (up to " + juce::String (frames / sr, 1) + " sec) - press stop when finished");
 }
 void CooltoneProcessor::stopCapture() { if (capturing.load()) captureStopRequested = true; }
 
