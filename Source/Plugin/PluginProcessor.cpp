@@ -198,7 +198,7 @@ void CooltoneProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::Mi
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples(), nch = buffer.getNumChannels();
     for (int c = getTotalNumInputChannels(); c < getTotalNumOutputChannels(); ++c) buffer.clear (c, 0, n);
-    if (raw[ct::pBypass]->load() > 0.5f) return;
+    if (n <= 0 || nch <= 0 || raw[ct::pBypass]->load() > 0.5f) return;
 
     const float gDb = raw[ct::pInGain]->load();
     if (std::abs (gDb) > 0.01f) buffer.applyGain (juce::Decibels::decibelsToGain (gDb));
@@ -314,9 +314,23 @@ void CooltoneProcessor::workerRun (juce::Thread& t)
             if (hasPendingFile) { f = pendingFile; hasF = true; hasPendingFile = false; }
             if (pendingClip) { pc = std::move (pendingClip); pendingClip = nullptr; pcPath = pendingClipPath; pcOff = pendingClipOffset; }
         }
-        if (hasF) doLoadFile (f);
-        if (pc) { { const juce::ScopedLock sl (modelLock); clipPath = pcPath; } clipOffsetSamples = pcOff; doAnalyse (pc); }
-        if (renderRequested.exchange (false)) doRender();
+        // A malformed file, allocation failure, or unexpected DSP exception must not
+        // unwind out of the worker thread and terminate the host process.
+        try { if (hasF) doLoadFile (f); }
+        catch (const std::exception& e) { setStatus ("Load failed safely: " + juce::String (e.what())); }
+        catch (...) { setStatus ("Load failed safely: unexpected error"); }
+        try
+        {
+            if (pc) { { const juce::ScopedLock sl (modelLock); clipPath = pcPath; } clipOffsetSamples = pcOff; doAnalyse (pc); }
+        }
+        catch (const std::exception& e) { setStatus ("Analysis failed safely: " + juce::String (e.what())); }
+        catch (...) { setStatus ("Analysis failed safely: unexpected error"); }
+        if (renderRequested.exchange (false))
+        {
+            try { doRender(); }
+            catch (const std::exception& e) { setStatus ("Render failed safely: " + juce::String (e.what())); }
+            catch (...) { setStatus ("Render failed safely: unexpected error"); }
+        }
     }
 }
 
@@ -326,24 +340,39 @@ void CooltoneProcessor::doLoadFile (const juce::File& f)
     fm.registerBasicFormats();
     std::unique_ptr<juce::AudioFormatReader> reader (fm.createReaderFor (f));
     if (reader == nullptr) { setStatus ("Cannot read " + f.getFileName()); return; }
-    if ((double) reader->lengthInSamples > 600.0 * reader->sampleRate) { setStatus ("File too long (10 min max)"); return; }
+    const double targetSR = currentSR.load();
+    if (! std::isfinite (reader->sampleRate) || reader->sampleRate < 8000.0 || reader->sampleRate > 384000.0
+        || ! std::isfinite (targetSR) || targetSR < 8000.0 || targetSR > 384000.0
+        || reader->numChannels == 0 || reader->lengthInSamples < 4096
+        || reader->lengthInSamples > 600.0 * reader->sampleRate
+        || reader->lengthInSamples > std::numeric_limits<int>::max())
+    { setStatus ("Unsupported or invalid audio file"); return; }
     const int nch = (int) std::min<unsigned int> (2u, reader->numChannels);
     const int len = (int) reader->lengthInSamples;
-    if (len < 4096) { setStatus ("File too short"); return; }
+    // Keep source and resampled buffers within a conservative memory budget.
+    constexpr std::uint64_t maxAudioSamples = 50000000ull;
+    if (static_cast<std::uint64_t> (len) * static_cast<std::uint64_t> (nch) > maxAudioSamples)
+    { setStatus ("Audio file exceeds the safe memory limit"); return; }
     juce::AudioBuffer<float> buf (nch, len + 16);
     buf.clear();
-    reader->read (&buf, 0, len, 0, true, nch > 1);
+    if (! reader->read (&buf, 0, len, 0, true, nch > 1))
+    { setStatus ("Could not decode the complete audio file"); return; }
 
     auto c = std::make_shared<ct::AudioClip>();
-    c->sampleRate = (int) std::lround (currentSR);
+    c->sampleRate = (int) std::lround (targetSR);
     c->ch.resize ((size_t) nch);
-    const double ratio = reader->sampleRate / currentSR;
+    const double ratio = reader->sampleRate / targetSR;
     for (int ch = 0; ch < nch; ++ch)
     {
         if (std::abs (ratio - 1.0) < 1e-9) c->ch[(size_t) ch].assign (buf.getReadPointer (ch), buf.getReadPointer (ch) + len);
         else
         {
-            const int outLen = (int) std::ceil ((double) len / ratio);
+            const double outLength = std::ceil (static_cast<double> (len) / ratio);
+            if (! std::isfinite (outLength) || outLength < 1.0
+                || outLength * static_cast<double> (nch) > static_cast<double> (maxAudioSamples)
+                || outLength > static_cast<double> (std::numeric_limits<int>::max()))
+            { setStatus ("Resampled audio exceeds the safe memory limit"); return; }
+            const int outLen = static_cast<int> (outLength);
             c->ch[(size_t) ch].assign ((size_t) outLen, 0.f);
             juce::LagrangeInterpolator li;
             li.process (ratio, buf.getReadPointer (ch), c->ch[(size_t) ch].data(), outLen);
