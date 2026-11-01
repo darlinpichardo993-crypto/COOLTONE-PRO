@@ -127,7 +127,7 @@ void PianoRoll::paint (juce::Graphics& g)
         g.setColour (dim); g.setFont (10.0f);
         for (long b = (long) std::floor (tL / beat); b * beat <= tR; ++b)
             if (b >= 0 && b % 4 == 0) g.drawText (juce::String (b / 4 + 1), (int) xOf ((double) b * beat) + 3, 0, 40, rulerH, juce::Justification::centredLeft);
-        g.setColour (dim); g.drawText ("click to place the playhead", getWidth() - 180, 0, 176, rulerH, juce::Justification::centredRight);
+        g.setColour (dim); g.drawText ("Ctrl+wheel: zoom  |  Shift+wheel: time  |  arrows: navigate  |  right/middle drag: pan", getWidth() - 440, 0, 436, rulerH, juce::Justification::centredRight);
     }
 
     {   // ---- notes and curves ----
