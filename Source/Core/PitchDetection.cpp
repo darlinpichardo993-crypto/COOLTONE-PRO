@@ -6,7 +6,11 @@ namespace cooltone
 {
 int PitchDetector::hopSamples (const YinParams& p)
 {
-    return std::max (1, static_cast<int> (std::lround (p.sampleRate * p.hopSeconds)));
+    if (! std::isfinite (p.sampleRate) || ! std::isfinite (p.hopSeconds) || p.sampleRate < 8000.0 || p.hopSeconds <= 0.0)
+        return 1;
+    const double samples = p.sampleRate * p.hopSeconds;
+    if (! std::isfinite (samples) || samples >= 1000000.0) return 1000000;
+    return std::max (1, static_cast<int> (std::lround (samples)));
 }
 
 // NOTE: the difference function is computed directly (O(W * tauMax) per frame). It is exact and
@@ -14,12 +18,19 @@ int PitchDetector::hopSamples (const YinParams& p)
 std::vector<PitchFrame> PitchDetector::analyse (const float* x, std::size_t n, const YinParams& p)
 {
     std::vector<PitchFrame> out;
+    if (x == nullptr || ! std::isfinite (p.sampleRate) || ! std::isfinite (p.minHz)
+        || ! std::isfinite (p.maxHz) || ! std::isfinite (p.threshold)
+        || p.sampleRate < 8000.0 || p.sampleRate > 384000.0
+        || p.minHz < 20.0 || p.maxHz <= p.minHz || p.maxHz >= p.sampleRate * 0.45
+        || p.minRms < 0.0 || ! std::isfinite (p.minRms))
+        return out;
     const int tauMax = static_cast<int> (std::ceil (p.sampleRate / p.minHz)) + 1;
+    if (tauMax < 4 || tauMax > 20000) return out;
     const int tauMin = std::max (2, static_cast<int> (std::floor (p.sampleRate / p.maxHz)));
     const int W = tauMax;
     const std::size_t frameLen = static_cast<std::size_t> (W + tauMax);
     const std::size_t hop = static_cast<std::size_t> (hopSamples (p));
-    if (x == nullptr || n < frameLen) return out;
+    if (n < frameLen) return out;
 
     std::vector<double> dn (static_cast<std::size_t> (tauMax) + 1);
     std::vector<double> d (static_cast<std::size_t> (tauMax) + 1);
