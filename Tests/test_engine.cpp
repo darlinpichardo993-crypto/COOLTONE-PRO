@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <set>
 
 using namespace cooltone;
@@ -509,4 +510,61 @@ TEST (midi_export_has_correct_notes_and_timing)
     std::string err; const std::string path = (std::filesystem::temp_directory_path() / "ct_notes.mid").string();
     CHECK (writeMidiFile (path, an.notes, s, 120.0, &err)); CHECK (std::filesystem::file_size (path) == f.size());
     std::filesystem::remove (path);
+}
+
+
+// ---------------- defensive DSP / malformed media regression tests ----------------
+TEST (analysis_rejects_malformed_audio_and_handles_mismatched_channels)
+{
+    AudioClip empty;
+    CHECK (analyseClip (empty).frames.empty());
+
+    AudioClip invalidRate;
+    invalidRate.sampleRate = 0;
+    invalidRate.ch = { std::vector<float> (44100, 0.1f) };
+    CHECK (analyseClip (invalidRate).frames.empty());
+
+    const double sr = 44100.0;
+    auto voice = vowel (sr, 0.8, [] (double) { return 220.0; });
+    AudioClip mismatched;
+    mismatched.sampleRate = 44100;
+    mismatched.ch = { voice, std::vector<float> (voice.begin(), voice.begin() + voice.size() / 2) };
+    const auto safe = analyseClip (mismatched);
+    CHECK (! safe.frames.empty());
+    CHECK (safe.frames.back().timeSec < 0.8);
+}
+
+TEST (pitch_detector_rejects_invalid_analysis_settings)
+{
+    const std::vector<float> audio (44100, 0.1f);
+    YinParams bad;
+    bad.sampleRate = 0.0;
+    CHECK (PitchDetector::analyse (audio.data(), audio.size(), bad).empty());
+    bad.sampleRate = 44100.0;
+    bad.hopSeconds = 0.0;
+    CHECK (PitchDetector::analyse (audio.data(), audio.size(), bad).empty());
+    bad.hopSeconds = 0.01;
+    bad.minHz = 0.0;
+    CHECK (PitchDetector::analyse (audio.data(), audio.size(), bad).empty());
+}
+
+TEST (vibrato_and_melisma_guard_extreme_inputs)
+{
+    VibratoParams vp;
+    vp.rateHz = std::numeric_limits<double>::quiet_NaN();
+    vp.depthCents = 1.0e12;
+    vp.phase = std::numeric_limits<double>::infinity();
+    const auto curve = generateVibratoCents (1.0, 0.01, vp, 77);
+    CHECK (curve.size() == 100);
+    for (double cents : curve) CHECK (std::isfinite (cents));
+    CHECK (generateVibratoCents (1.0, 0.0, vp, 77).empty());
+    CHECK (generateVibratoCents (std::numeric_limits<double>::quiet_NaN(), 0.01, vp, 77).empty());
+
+    MelismaParams mp;
+    mp.numNotes = 1000000;
+    mp.humanize = 4.0;
+    const auto run = generateMelisma (0.0, 1.0, 60.0, 0x0fff, mp, 19);
+    CHECK (run.size() <= 12);
+    CHECK (generateMelisma (1.0, 0.0, 60.0, 0x0fff, mp, 19).empty());
+    CHECK (generateMelisma (0.0, std::numeric_limits<double>::infinity(), 60.0, 0x0fff, mp, 19).empty());
 }
