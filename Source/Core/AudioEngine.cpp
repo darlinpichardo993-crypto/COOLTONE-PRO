@@ -1,5 +1,6 @@
 #include "AudioEngine.h"
 #include "DSPUtilities.h"
+#include "Biquad.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -25,9 +26,32 @@ Analysis analyseClip (const AudioClip& clip)
         mono[i] = static_cast<float> (sum / static_cast<double> (clip.ch.size()));
     }
 
-    YinParams p; p.sampleRate = clip.sampleRate;
+    // YIN is quadratic in its analysis window. Analyse high-rate sessions at 48 kHz
+    // after anti-alias filtering; note timestamps remain absolute seconds, while the
+    // full-resolution source audio is retained for PSOLA/render/export.
+    double analysisRate = static_cast<double> (clip.sampleRate);
+    if (analysisRate > 48000.0)
+    {
+        Biquad antiAlias = Biquad::lowpass (analysisRate, 18000.0);
+        for (auto& sample : mono) sample = antiAlias.process (sample);
+        analysisRate = 48000.0;
+        const double ratio = static_cast<double> (clip.sampleRate) / analysisRate;
+        const std::size_t reducedSize = static_cast<std::size_t> (std::ceil (static_cast<double> (n) / ratio));
+        std::vector<float> reduced (reducedSize, 0.0f);
+        for (std::size_t i = 0; i < reducedSize; ++i)
+        {
+            const double pos = static_cast<double> (i) * ratio;
+            const std::size_t index = std::min (n - 1, static_cast<std::size_t> (pos));
+            const std::size_t next = std::min (n - 1, index + 1);
+            const double frac = pos - static_cast<double> (index);
+            reduced[i] = static_cast<float> (mono[index] * (1.0 - frac) + mono[next] * frac);
+        }
+        mono.swap (reduced);
+    }
+
+    YinParams p; p.sampleRate = analysisRate;
     a.frames = PitchDetector::analyse (mono.data(), mono.size(), p);
-    a.hop = static_cast<double> (PitchDetector::hopSamples (p)) / clip.sampleRate;
+    a.hop = static_cast<double> (PitchDetector::hopSamples (p)) / analysisRate;
     if (! a.frames.empty()) a.notes = makeEditNotes (segmentNotes (a.frames, a.hop));
 
     const std::size_t blocks = (n + static_cast<std::size_t> (a.peakBlock) - 1) / static_cast<std::size_t> (a.peakBlock);
