@@ -125,7 +125,7 @@ CooltoneEditor::CooltoneEditor (CooltoneProcessor& p) : juce::AudioProcessorEdit
         proc.autoTune();
         const int n = proc.editMagicVibrato (roll.getSelection(), false);
         const juce::String detected = ct::ScaleEngine::keyName (key.root) + (key.minor ? " minor" : " major");
-        say ("AUTO VOICE · " + detected + " · " + juce::String (n) + " notes · selected vocal profile");
+        say (juce::String ("AUTO VOICE · ") + detected + " · " + juce::String (n) + " notes · selected vocal profile");
     }), 132, 28);
     vib->add (makeButton ("Regenerate", [this] { proc.editMagicVibrato (roll.getSelection(), true); }), 92, 26);
     vib->add (makeButton ("Remove", [this] { proc.editForceVibrato (roll.getSelection(), false); }), 92, 26);
