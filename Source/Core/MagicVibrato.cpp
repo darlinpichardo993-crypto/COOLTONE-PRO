@@ -44,6 +44,27 @@ bool noteHasNaturalVibrato (const EditNote& en, const std::vector<PitchFrame>& f
     return measureNaturalVibrato (en, fr, hop, nullptr, nullptr);
 }
 
+namespace
+{
+bool noteHasUsableVoicing (const EditNote& en, const std::vector<PitchFrame>& fr, double hop)
+{
+    if (fr.empty() || ! std::isfinite (hop) || hop <= 0.0) return false;
+    const std::size_t first = std::min (en.note.firstFrame, fr.size());
+    const std::size_t last = std::min (en.note.lastFrame, fr.size() - 1);
+    if (first > last) return false;
+    std::size_t voiced = 0;
+    double confidence = 0.0;
+    for (std::size_t i = first; i <= last; ++i)
+        if (fr[i].voiced && std::isfinite (fr[i].midi))
+        { ++voiced; confidence += clampValue (static_cast<double> (fr[i].confidence), 0.0, 1.0); }
+    const std::size_t total = last - first + 1;
+    const std::size_t minFrames = static_cast<std::size_t> (std::ceil (0.12 / hop));
+    return voiced >= std::max<std::size_t> (3, minFrames)
+        && static_cast<double> (voiced) / static_cast<double> (total) >= 0.55
+        && confidence / static_cast<double> (voiced) >= 0.25;
+}
+} // namespace
+
 double notePitchSpread (const EditNote& en, const std::vector<PitchFrame>& fr, double hop)
 {
     const std::size_t skip = static_cast<std::size_t> (0.03 / hop) + 1;
@@ -110,7 +131,7 @@ std::vector<MagicDecision> analyseForVibrato (const std::vector<EditNote>& notes
         const EditNote& n = notes[i];
         MagicDecision d;
         const double dur = n.note.endSec - n.note.startSec;
-        if (n.edit.deleted || noteHasNaturalVibrato (n, fr, hop) || notePitchSpread (n, fr, hop) > maxSpread) { out[i] = d; continue; }
+        if (n.edit.deleted || ! noteHasUsableVoicing (n, fr, hop) || noteHasNaturalVibrato (n, fr, hop) || notePitchSpread (n, fr, hop) > maxSpread) { out[i] = d; continue; }
 
         if (ms.style == 1)   // RUN: only the endings of runs / melismas, entering late
         {
@@ -154,6 +175,7 @@ int applyMagicVibrato (std::vector<EditNote>& notes, const std::vector<PitchFram
             // Preserve existing natural vibrato to avoid stacking two oscillators.
             const double duration = notes[i].note.endSec - notes[i].note.startSec;
             if (! selection.empty() && ! decision.apply && ! e.deleted && duration >= 0.25
+                && noteHasUsableVoicing (notes[i], fr, hop)
                 && ! noteHasNaturalVibrato (notes[i], fr, hop))
             {
                 decision.apply = true;
