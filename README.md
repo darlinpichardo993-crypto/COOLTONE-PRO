@@ -39,7 +39,7 @@ Mientras reproduces en FL, COOLTONE reemplaza la entrada por la toma procesada, 
 
 **Presets**: 25 de fábrica en 7 categorías (Artist Styles, Bachata, R&B, Pop, Emotional, Natural, Experimental): son conjuntos de parámetros originales inspirados en rasgos generales de interpretación, **no clonan voces ni artistas**. Presets de usuario: guardar, cargar, renombrar, borrar, importar, exportar (`.ctpreset`, también en `Presets/Factory/`).
 
-**Piano roll**: notas detectadas (contorno) y notas escuchadas (relleno), curva de pitch original y corregida (incluye vibrato), waveform, escala resaltada, cuadrícula por compás (BPM del host), zoom (Ctrl+rueda horizontal, Alt+rueda vertical), selección múltiple, Undo/Redo (Ctrl+Z / Ctrl+Y), play/loop de la selección.
+**Piano roll**: notas detectadas (contorno) y notas escuchadas (relleno), curva de pitch original y corregida (incluye vibrato), waveform, escala resaltada, cuadrícula por compás (BPM del host), zoom (Ctrl+rueda, Alt+rueda vertical), desplazamiento temporal (Shift+rueda), navegación con flechas/PageUp/PageDown/Home/End, paneo con botón derecho o central + arrastre, selección múltiple, Undo/Redo (Ctrl+Z / Ctrl+Y), play/loop de la selección.
 
 ## 4. Qué está probado y qué no
 **Probado (Linux, GCC, `-Wall -Wextra -Wpedantic` sin avisos; también con AddressSanitizer + UBSan): 42 pruebas, 2132 comprobaciones**:
@@ -56,7 +56,7 @@ detección YIN, segmentación de notas, WAV (16/24/32f), reafinación PSOLA (±3
 - Pendiente de la primera especificación: controles Vocal Tension, Intensity, Note Sustain y Expression (no hay DSP fiable implementado; no se muestran).
 - Equivalencias: *Pitch Smoothing* = Retune Speed; *Natural Correction* = modo Natural; *Vibrato Preservation* = Keep Original Vibrato + Humanize; *Fade In/Out* = Attack/Release del vibrato; *Solo selected note* = Loop Sel.
 - "AI Voice Analyzer" = análisis DSP por reglas (YIN + estadística), no aprendizaje automático. Detección monofónica; **no hay pYIN ni detección polifónica**.
-- Grabación: hasta 3 min por toma; la selección del dispositivo/canal de entrada la hace el *Options* del Standalone o el host; el bit depth se elige al exportar (el audio interno es float). Importación hasta 10 min; si cambia la frecuencia de muestreo del host se recarga el archivo importado (una grabación se debe repetir).
+- Grabación: hasta 3 min por toma; el acceso concurrente al buffer de captura está protegido con un try-lock en el hilo de audio para evitar resize/free durante una copia; la selección del dispositivo/canal de entrada la hace el *Options* del Standalone o el host; el bit depth se elige al exportar (el audio interno es float). Importación hasta 10 min; si cambia la frecuencia de muestreo del host se recarga el archivo importado (una grabación se debe repetir).
 - Procesa mono y estéreo (marcas de pitch compartidas). El rango de corrección es ±12 semitonos por nota.
 - El análisis YIN es O(n·τ) (≈1 s por cada 30 s de audio).
 - La exportación MIDI guarda **solo notas, duraciones y tempo**; las curvas de pitch/vibrato no se pueden representar en MIDI.

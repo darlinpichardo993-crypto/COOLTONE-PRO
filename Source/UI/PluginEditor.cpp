@@ -119,6 +119,12 @@ CooltoneEditor::CooltoneEditor (CooltoneProcessor& p) : juce::AudioProcessorEdit
         const int n = proc.editMagicVibrato (roll.getSelection(), false);
         say (n > 0 ? juce::String (n) + " notes carry vibrato" : "No note qualifies with these settings (try another intensity or style)");
     }), 190, 28);
+    vib->add (makeButton ("AUTO VOICE", [this]
+    {
+        proc.autoTune();
+        const int n = proc.editMagicVibrato (roll.getSelection(), false);
+        say ("Auto Tune + Magic Vibrato: " + juce::String (n) + " notes processed with the selected vocal profile");
+    }), 132, 28);
     vib->add (makeButton ("Regenerate", [this] { proc.editMagicVibrato (roll.getSelection(), true); }), 92, 26);
     vib->add (makeButton ("Remove", [this] { proc.editForceVibrato (roll.getSelection(), false); }), 92, 26);
     vib->add (makeButton ("Apply to Selected", [this]

@@ -46,7 +46,7 @@ static std::vector<ParamSpec> build()
     C ("vibIntel", "Intensity", { "Minimal", "Natural", "Expressive", "Professional", "Dramatic" }, 1, "Vibrato");
     F ("vibAmount", "Mix", 0, 100, 100, 1, "%", "Vibrato");
     F ("vibRate", "Speed", 3, 9, 5.5, 0.05, "Hz", "Vibrato");
-    F ("vibDepth", "Depth", 0, 100, 35, 1, "cents", "Vibrato");
+    F ("vibDepth", "Oscillation", 0, 100, 35, 1, "cents", "Vibrato");
     F ("vibDelay", "Delay", 0, 800, 250, 1, "ms", "Vibrato");
     F ("vibAttack", "Attack/Fade In", 0, 800, 300, 1, "ms", "Vibrato");
     F ("vibRelease", "Release/Fade Out", 0, 500, 120, 1, "ms", "Vibrato");

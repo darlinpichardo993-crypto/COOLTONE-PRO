@@ -194,6 +194,7 @@ private:
 
     // capture
     juce::AudioBuffer<float> captureBuffer;
+    juce::SpinLock captureLock; // protects buffer resize/copy/teardown against the real-time audio callback
     std::atomic<bool> capturing { false }, captureStopRequested { false }, captureFinished { false };
     std::atomic<int> capturePos { 0 };
     std::atomic<juce::int64> captureStartHost { 0 };

@@ -20,9 +20,10 @@ PianoRoll::PianoRoll (CooltoneProcessor& p) : proc (p)
 void PianoRoll::refresh()
 {
     auto nextView = proc.getView();
-    const bool newAnalysis = ! view || view->analysis != nextView->analysis;
+    const bool newAnalysis = ! view || ! nextView || view->analysis != nextView->analysis;
     view = std::move (nextView);
     lastVersion = proc.getViewVersion();
+    if (! view) { shown.clear(); sel.clear(); return; }
     shown.assign (view->notes.size(), 0.0);
     for (size_t i = 0; i < view->notes.size(); ++i)
     {
@@ -126,7 +127,7 @@ void PianoRoll::paint (juce::Graphics& g)
         g.setColour (dim); g.setFont (10.0f);
         for (long b = (long) std::floor (tL / beat); b * beat <= tR; ++b)
             if (b >= 0 && b % 4 == 0) g.drawText (juce::String (b / 4 + 1), (int) xOf ((double) b * beat) + 3, 0, 40, rulerH, juce::Justification::centredLeft);
-        g.setColour (dim); g.drawText ("click to place the playhead", getWidth() - 180, 0, 176, rulerH, juce::Justification::centredRight);
+        g.setColour (dim); g.drawText ("Ctrl+wheel: zoom  |  Shift+wheel: time  |  arrows: navigate  |  right/middle drag: pan", getWidth() - 440, 0, 436, rulerH, juce::Justification::centredRight);
     }
 
     {   // ---- notes and curves ----
@@ -197,6 +198,11 @@ void PianoRoll::paint (juce::Graphics& g)
 void PianoRoll::mouseDown (const juce::MouseEvent& e)
 {
     grabKeyboardFocus();
+    if (e.mods.isMiddleButtonDown() || e.mods.isRightButtonDown())
+    {
+        panning = true; panStart = e.position; panStartSec = scrollSec; panStartMidi = topMidi;
+        return;
+    }
     if (e.y < rulerH && e.x > keyW) { proc.seekSeconds (std::max (0.0, timeAt ((float) e.x))); repaint(); return; }
     if (e.x < keyW || ! view) return;
     const int hit = hitNote ((float) e.x, (float) e.y);
@@ -236,13 +242,19 @@ void PianoRoll::mouseDown (const juce::MouseEvent& e)
 
 void PianoRoll::mouseDrag (const juce::MouseEvent& e)
 {
-    if (dragging) dragDelta = (dragStart.y - e.position.y) / pxPerSemi;
+    if (panning)
+    {
+        scrollSec = std::max (0.0, panStartSec - (e.position.x - panStart.x) / pxPerSec);
+        topMidi = juce::jlimit (0.0, 127.0, panStartMidi + (e.position.y - panStart.y) / pxPerSemi);
+    }
+    else if (dragging) dragDelta = (dragStart.y - e.position.y) / pxPerSemi;
     else if (marquee) marqueeRect = juce::Rectangle<float> (dragStart, e.position);
     repaint();
 }
 
 void PianoRoll::mouseUp (const juce::MouseEvent& e)
 {
+    if (panning) panning = false;
     if (dragging)
     {
         const double d = dragDelta; const auto notes = dragNotes;
@@ -274,7 +286,7 @@ void PianoRoll::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhee
     }
     else if (e.mods.isAltDown()) pxPerSemi = juce::jlimit (7.0, 48.0, pxPerSemi * (w.deltaY > 0 ? 1.1 : 1.0 / 1.1));
     else if (e.mods.isShiftDown()) scrollSec = std::max (0.0, scrollSec - w.deltaY * 600.0 / pxPerSec);
-    else topMidi = juce::jlimit (36.0, 108.0, topMidi - w.deltaY * 6.0);
+    else topMidi = juce::jlimit (0.0, 127.0, topMidi - w.deltaY * 6.0);
     repaint();
 }
 
@@ -284,5 +296,16 @@ bool PianoRoll::keyPressed (const juce::KeyPress& k)
     if (k == juce::KeyPress ('z', juce::ModifierKeys::commandModifier, 0)) { proc.undo(); return true; }
     if (k == juce::KeyPress ('y', juce::ModifierKeys::commandModifier, 0)) { proc.redo(); return true; }
     if (k == juce::KeyPress ('a', juce::ModifierKeys::commandModifier, 0) && view) { sel.clear(); for (size_t i = 0; i < view->notes.size(); ++i) sel.insert ((int) i); notifySelection(); repaint(); return true; }
+    // Keyboard navigation: arrows pan the visible range; PageUp/PageDown move an octave.
+    if (k == juce::KeyPress::leftKey)  { scrollSec = std::max (0.0, scrollSec - (k.getModifiers().isShiftDown() ? 1.0 : 0.25) * (getWidth() - keyW) / pxPerSec); repaint(); return true; }
+    if (k == juce::KeyPress::rightKey) { scrollSec += (k.getModifiers().isShiftDown() ? 1.0 : 0.25) * (getWidth() - keyW) / pxPerSec; repaint(); return true; }
+    if (k == juce::KeyPress::upKey)    { topMidi = juce::jlimit (0.0, 127.0, topMidi + (k.getModifiers().isShiftDown() ? 12.0 : 1.0)); repaint(); return true; }
+    if (k == juce::KeyPress::downKey)  { topMidi = juce::jlimit (0.0, 127.0, topMidi - (k.getModifiers().isShiftDown() ? 12.0 : 1.0)); repaint(); return true; }
+    if (k == juce::KeyPress::pageUpKey)   { topMidi = juce::jlimit (0.0, 127.0, topMidi + 12.0); repaint(); return true; }
+    if (k == juce::KeyPress::pageDownKey) { topMidi = juce::jlimit (0.0, 127.0, topMidi - 12.0); repaint(); return true; }
+    if (k == juce::KeyPress::homeKey) { scrollSec = 0.0; repaint(); return true; }
+    if (k == juce::KeyPress::endKey && view) { scrollSec = std::max (0.0, view->durationSec - (getWidth() - keyW) / pxPerSec); repaint(); return true; }
+    if (k == juce::KeyPress ('+', 0, 0) || k == juce::KeyPress ('=', 0, 0)) { pxPerSec = juce::jlimit (15.0, 1500.0, pxPerSec * 1.15); repaint(); return true; }
+    if (k == juce::KeyPress ('-', 0, 0)) { pxPerSec = juce::jlimit (15.0, 1500.0, pxPerSec / 1.15); repaint(); return true; }
     return false;
 }

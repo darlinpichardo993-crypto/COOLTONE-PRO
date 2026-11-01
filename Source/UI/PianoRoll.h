@@ -55,6 +55,8 @@ private:
     juce::Point<float> dragStart;
     std::vector<int> dragNotes;
     double dragDelta = 0.0;
-    bool dragging = false, marquee = false;
+    bool dragging = false, marquee = false, panning = false;
+    juce::Point<float> panStart;
+    double panStartSec = 0.0, panStartMidi = 84.0;
     juce::Rectangle<float> marqueeRect;
 };
