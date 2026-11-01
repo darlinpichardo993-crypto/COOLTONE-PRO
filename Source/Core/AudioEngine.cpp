@@ -1,16 +1,28 @@
 #include "AudioEngine.h"
 #include "DSPUtilities.h"
 #include <algorithm>
-#include <cmath>
+#include <cmath>\n#include <limits>
 
 namespace cooltone
 {
 Analysis analyseClip (const AudioClip& clip)
 {
     Analysis a;
-    const std::size_t n = clip.numFrames();
+    // Validate untrusted/imported audio before allocating analysis buffers. A malformed
+    // clip (zero rate, empty channel, or mismatched channel lengths) must never crash YIN.
+    if (clip.sampleRate < 8000 || clip.sampleRate > 384000 || clip.ch.empty() || clip.ch.size() > 8)
+        return a;
+    std::size_t n = std::numeric_limits<std::size_t>::max();
+    for (const auto& channel : clip.ch) n = std::min (n, channel.size());
+    if (n == 0 || n == std::numeric_limits<std::size_t>::max()) return a;
+
     std::vector<float> mono (n, 0.f);
-    for (std::size_t i = 0; i < n; ++i) { double s = 0; for (const auto& c : clip.ch) s += c[i]; mono[i] = static_cast<float> (s / static_cast<double> (clip.ch.size())); }
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        double sum = 0.0;
+        for (const auto& channel : clip.ch) sum += channel[i];
+        mono[i] = static_cast<float> (sum / static_cast<double> (clip.ch.size()));
+    }
 
     YinParams p; p.sampleRate = clip.sampleRate;
     a.frames = PitchDetector::analyse (mono.data(), mono.size(), p);
