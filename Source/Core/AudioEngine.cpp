@@ -30,27 +30,32 @@ Analysis analyseClip (const AudioClip& clip)
     // after anti-alias filtering; note timestamps remain absolute seconds, while the
     // full-resolution source audio is retained for PSOLA/render/export.
     double analysisRate = static_cast<double> (clip.sampleRate);
+    const float* analysisData = mono.data();
+    std::size_t analysisSize = mono.size();
+    std::vector<float> reduced;
     if (analysisRate > 48000.0)
     {
+        std::vector<float> filtered = mono;
         Biquad antiAlias = Biquad::lowpass (analysisRate, 18000.0);
-        for (auto& sample : mono) sample = antiAlias.process (sample);
+        for (auto& sample : filtered) sample = antiAlias.process (sample);
         analysisRate = 48000.0;
         const double ratio = static_cast<double> (clip.sampleRate) / analysisRate;
         const std::size_t reducedSize = static_cast<std::size_t> (std::ceil (static_cast<double> (n) / ratio));
-        std::vector<float> reduced (reducedSize, 0.0f);
+        reduced.assign (reducedSize, 0.0f);
         for (std::size_t i = 0; i < reducedSize; ++i)
         {
             const double pos = static_cast<double> (i) * ratio;
             const std::size_t index = std::min (n - 1, static_cast<std::size_t> (pos));
             const std::size_t next = std::min (n - 1, index + 1);
             const double frac = pos - static_cast<double> (index);
-            reduced[i] = static_cast<float> (mono[index] * (1.0 - frac) + mono[next] * frac);
+            reduced[i] = static_cast<float> (filtered[index] * (1.0 - frac) + filtered[next] * frac);
         }
-        mono.swap (reduced);
+        analysisData = reduced.data();
+        analysisSize = reduced.size();
     }
 
     YinParams p; p.sampleRate = analysisRate;
-    a.frames = PitchDetector::analyse (mono.data(), mono.size(), p);
+    a.frames = PitchDetector::analyse (analysisData, analysisSize, p);
     a.hop = static_cast<double> (PitchDetector::hopSamples (p)) / analysisRate;
     if (! a.frames.empty()) a.notes = makeEditNotes (segmentNotes (a.frames, a.hop));
 
