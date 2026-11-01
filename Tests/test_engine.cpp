@@ -7,6 +7,7 @@
 #include "PresetManager.h"
 #include "VibratoEngine.h"
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <limits>
@@ -567,4 +568,23 @@ TEST (vibrato_and_melisma_guard_extreme_inputs)
     CHECK (run.size() <= 12);
     CHECK (generateMelisma (1.0, 0.0, 60.0, 0x0fff, mp, 19).empty());
     CHECK (generateMelisma (0.0, std::numeric_limits<double>::infinity(), 60.0, 0x0fff, mp, 19).empty());
+}
+
+TEST (magic_vibrato_skips_unvoiced_or_unreliable_notes)
+{
+    const double sr = 44100.0;
+    auto clip = melody (sr, { { 57.0, 1.2, 0.0 } });
+    auto an = analyseClip (clip);
+    CHECK (an.notes.size() == 1);
+    auto frames = an.frames;
+    for (std::size_t i = an.notes[0].note.firstFrame; i <= an.notes[0].note.lastFrame && i < frames.size(); ++i)
+    {
+        frames[i].voiced = false;
+        frames[i].confidence = 0.0f;
+    }
+    MagicSettings settings;
+    auto notes = an.notes;
+    CHECK (analyseForVibrato (notes, frames, an.hop, settings).front().apply == false);
+    CHECK (applyMagicVibrato (notes, frames, an.hop, settings, { 0 }, false, 91) == 0);
+    CHECK (! notes[0].edit.vibrato);
 }
