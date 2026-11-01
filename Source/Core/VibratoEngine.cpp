@@ -38,7 +38,25 @@ VibratoParams vibratoParamsFromSettings (const Settings& s)
 
 std::vector<double> generateVibratoCents (double dur, double hop, const VibratoParams& p0, std::uint32_t seed)
 {
+    // Guard public DSP entry point against invalid settings and pathological frame counts.
+    if (! std::isfinite (dur) || ! std::isfinite (hop) || dur <= 0.0 || hop <= 0.0 || dur > 600.0)
+        return {};
     VibratoParams p = p0;
+    p.rateHz = std::isfinite (p.rateHz) ? clampValue (p.rateHz, 2.0, 10.0) : 5.5;
+    p.depthCents = std::isfinite (p.depthCents) ? clampValue (p.depthCents, 0.0, 100.0) : 0.0;
+    p.delaySec = std::isfinite (p.delaySec) ? clampValue (p.delaySec, 0.0, dur) : 0.0;
+    p.attackSec = std::isfinite (p.attackSec) ? clampValue (p.attackSec, 0.0, 2.0) : 0.0;
+    p.releaseSec = std::isfinite (p.releaseSec) ? clampValue (p.releaseSec, 0.0, 2.0) : 0.0;
+    p.shape = std::isfinite (p.shape) ? clampValue (p.shape, 0.0, 1.0) : 0.0;
+    p.randomness = std::isfinite (p.randomness) ? clampValue (p.randomness, 0.0, 1.0) : 0.0;
+    p.humanize = std::isfinite (p.humanize) ? clampValue (p.humanize, 0.0, 1.0) : 0.0;
+    p.speed = std::isfinite (p.speed) ? clampValue (p.speed, -0.5, 0.5) : 0.0;
+    p.smoothness = std::isfinite (p.smoothness) ? clampValue (p.smoothness, 0.0, 1.0) : 0.3;
+    p.variation = std::isfinite (p.variation) ? clampValue (p.variation, 0.0, 1.0) : 0.0;
+    p.amount = std::isfinite (p.amount) ? clampValue (p.amount, 0.0, 1.0) : 0.0;
+    p.phase = std::isfinite (p.phase) ? std::fmod (p.phase, 2.0 * kPi) : 0.0;
+    const double frameCount = std::ceil (dur / hop);
+    if (! std::isfinite (frameCount) || frameCount > 5000000.0) return {};
     double rateMul = 1.0;
     // ---- algorithmic character of each style (applied on top of the user's controls) ----
     switch (p.style)
@@ -53,7 +71,7 @@ std::vector<double> generateVibratoCents (double dur, double hop, const VibratoP
         default: break;    // Bachata / Emotional: handled inside the loop
     }
 
-    const std::size_t n = static_cast<std::size_t> (std::max (1.0, std::round (dur / hop)));
+    const std::size_t n = static_cast<std::size_t> (std::max (1.0, frameCount));
     std::vector<double> out (n, 0.0);
     Rng rng (seed);
     SmoothNoise rateNoise (seed * 2654435761u + 1u, 0.9), depthNoise (seed * 40503u + 7u, 0.6);
