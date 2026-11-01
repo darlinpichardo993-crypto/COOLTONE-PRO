@@ -124,8 +124,11 @@ CooltoneEditor::CooltoneEditor (CooltoneProcessor& p) : juce::AudioProcessorEdit
         const auto key = proc.detectKey (true);
         proc.autoTune();
         const int n = proc.editMagicVibrato (roll.getSelection(), false);
-        const juce::String detected = ct::ScaleEngine::keyName (key.root) + (key.minor ? " minor" : " major");
-        say (juce::String ("AUTO VOICE · ") + detected + " · " + juce::String (n) + " notes · selected vocal profile");
+        const juce::String detected = juce::String (ct::ScaleEngine::keyName (key.root))
+            + juce::String (key.minor ? " minor" : " major");
+        const juce::String message = juce::String ("AUTO VOICE · ") + detected
+            + juce::String (" · ") + juce::String (n) + juce::String (" notes · selected vocal profile");
+        say (message);
     }), 132, 28);
     vib->add (makeButton ("Regenerate", [this] { proc.editMagicVibrato (roll.getSelection(), true); }), 92, 26);
     vib->add (makeButton ("Remove", [this] { proc.editForceVibrato (roll.getSelection(), false); }), 92, 26);
