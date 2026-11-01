@@ -284,9 +284,14 @@ void PianoRoll::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhee
         pxPerSec = juce::jlimit (15.0, 1500.0, pxPerSec * (w.deltaY > 0 ? 1.15 : 1.0 / 1.15));
         scrollSec = std::max (0.0, tUnder - (e.x - keyW) / pxPerSec);
     }
-    else if (e.mods.isAltDown()) pxPerSemi = juce::jlimit (7.0, 48.0, pxPerSemi * (w.deltaY > 0 ? 1.1 : 1.0 / 1.1));
-    else if (e.mods.isShiftDown()) scrollSec = std::max (0.0, scrollSec - w.deltaY * 600.0 / pxPerSec);
-    else topMidi = juce::jlimit (0.0, 127.0, topMidi - w.deltaY * 6.0);
+    else if (e.mods.isAltDown())
+        pxPerSemi = juce::jlimit (7.0, 48.0, pxPerSemi * (w.deltaY > 0 ? 1.1 : 1.0 / 1.1));
+    else if (std::abs (w.deltaX) > 1.0e-4)
+        scrollSec = std::max (0.0, scrollSec + w.deltaX * 600.0 / pxPerSec); // horizontal wheel / trackpad
+    else if (e.mods.isShiftDown())
+        scrollSec = std::max (0.0, scrollSec - w.deltaY * 600.0 / pxPerSec);
+    else
+        topMidi = juce::jlimit (0.0, 127.0, topMidi - w.deltaY * 6.0);
     repaint();
 }
 
@@ -307,5 +312,18 @@ bool PianoRoll::keyPressed (const juce::KeyPress& k)
     if (k == juce::KeyPress::endKey && view) { scrollSec = std::max (0.0, view->durationSec - (getWidth() - keyW) / pxPerSec); repaint(); return true; }
     if (k == juce::KeyPress ('+', 0, 0) || k == juce::KeyPress ('=', 0, 0)) { pxPerSec = juce::jlimit (15.0, 1500.0, pxPerSec * 1.15); repaint(); return true; }
     if (k == juce::KeyPress ('-', 0, 0)) { pxPerSec = juce::jlimit (15.0, 1500.0, pxPerSec / 1.15); repaint(); return true; }
+    if (k == juce::KeyPress ('0', juce::ModifierKeys::commandModifier, 0))
+    {
+        scrollSec = 0.0; pxPerSec = 110.0; pxPerSemi = 16.0;
+        if (view && ! view->notes.empty())
+        {
+            double lo = 127.0, hi = 0.0;
+            for (const auto& note : view->notes) { lo = std::min (lo, note.note.midiPitch); hi = std::max (hi, note.note.midiPitch); }
+            const double usable = std::max (100.0, (double) plotBottom() - rulerH - 12.0);
+            pxPerSemi = juce::jlimit (7.0, 30.0, usable / std::max (8.0, hi - lo + 4.0));
+            topMidi = hi + 2.0;
+        }
+        repaint(); return true;
+    }
     return false;
 }
