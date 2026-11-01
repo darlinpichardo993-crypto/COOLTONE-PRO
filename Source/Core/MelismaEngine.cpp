@@ -43,6 +43,7 @@ std::vector<MelismaStep> generateMelisma (double t0, double t1, double base, std
 
     // limit the step count so that no step is shorter than ~45 ms
     const double runLen = dur * clampValue (p.lengthFrac, 0.1, 1.0);
+    const double humanize = clampValue (p.humanize, 0.0, 1.0);
     int N = std::max (2, std::min (12, p.numNotes));
     while (N > 2 && (runLen / (N - 1)) < 0.045) --N;
 
@@ -78,7 +79,7 @@ std::vector<MelismaStep> generateMelisma (double t0, double t1, double base, std
         if (p.rhythm == 1) wi = (i % 2 == 0) ? 1.3 : 0.7;
         else if (p.rhythm == 2) wi = 1.5 - u;
         else if (p.rhythm == 3) wi = 0.5 + u;
-        wi *= 1.0 + p.humanize * 0.3 * (rng.uni() * 2.0 - 1.0);
+        wi *= 1.0 + humanize * 0.3 * (rng.uni() * 2.0 - 1.0);
         w[static_cast<std::size_t> (i)] = std::max (0.2, wi);
     }
     double sum = 0; for (double x : w) sum += x;
