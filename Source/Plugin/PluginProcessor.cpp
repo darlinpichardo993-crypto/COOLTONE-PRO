@@ -398,6 +398,8 @@ std::shared_ptr<const ct::RenderOutput> CooltoneProcessor::currentRender() const
 // ============================================================================================
 void CooltoneProcessor::armCapture()
 {
+    // Finalize a just-stopped take before reusing the capture buffer.
+    if (captureFinished.exchange (false)) finalizeCapture();
     if (capturing.load()) return;
     {
         const juce::SpinLock::ScopedLockType captureGuard (captureLock);
