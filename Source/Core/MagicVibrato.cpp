@@ -16,23 +16,55 @@ MagicSettings magicSettingsFromSettings (const Settings& s)
 
 bool measureNaturalVibrato (const EditNote& en, const std::vector<PitchFrame>& fr, double hop, double* rateHz, double* depthCents)
 {
+    if (fr.empty() || ! std::isfinite (hop) || hop <= 0.0) return false;
+    const std::size_t first = std::min (en.note.firstFrame, fr.size());
+    const std::size_t last = std::min (en.note.lastFrame, fr.size() - 1);
+    if (first > last) return false;
+
     std::vector<double> dev;
-    for (std::size_t k = en.note.firstFrame; k <= en.note.lastFrame; ++k)
-        if (fr[k].voiced) dev.push_back ((fr[k].midi - en.note.midiPitch) * 100.0);
-    if (dev.size() < static_cast<std::size_t> (0.4 / hop)) return false;
-    const std::size_t w = std::max<std::size_t> (3, static_cast<std::size_t> (0.3 / hop));
+    dev.reserve (last - first + 1);
+    for (std::size_t k = first; k <= last; ++k)
+        if (fr[k].voiced && std::isfinite (fr[k].midi))
+            dev.push_back ((fr[k].midi - en.note.midiPitch) * 100.0);
+    if (dev.size() < static_cast<std::size_t> (std::ceil (0.45 / hop))) return false;
+
+    // Remove slow intonation drift before measuring periodic modulation.
+    const std::size_t w = std::max<std::size_t> (3, static_cast<std::size_t> (std::lround (0.28 / hop)));
     std::vector<double> hp (dev.size());
     for (std::size_t i = 0; i < dev.size(); ++i)
     {
-        const std::size_t a = i > w / 2 ? i - w / 2 : 0, b = std::min (dev.size() - 1, i + w / 2);
-        double m = 0; for (std::size_t k = a; k <= b; ++k) m += dev[k];
-        hp[i] = dev[i] - m / static_cast<double> (b - a + 1);
+        const std::size_t a = i > w / 2 ? i - w / 2 : 0;
+        const std::size_t b = std::min (dev.size() - 1, i + w / 2);
+        double mean = 0.0;
+        for (std::size_t k = a; k <= b; ++k) mean += dev[k];
+        hp[i] = dev[i] - mean / static_cast<double> (b - a + 1);
     }
-    double e = 0; for (double v : hp) e += v * v;
-    const double rms = std::sqrt (e / static_cast<double> (hp.size()));
-    if (rms < 14.0) return false;
-    int zc = 0; for (std::size_t i = 1; i < hp.size(); ++i) if ((hp[i - 1] < 0) != (hp[i] < 0)) ++zc;
-    const double rate = 0.5 * zc / (static_cast<double> (hp.size()) * hop);
+    double energy = 0.0;
+    for (double v : hp) energy += v * v;
+    const double rms = std::sqrt (energy / static_cast<double> (hp.size()));
+    if (! std::isfinite (rms) || rms < 10.0) return false;
+
+    // A periodicity check is more reliable than zero-crossing count alone:
+    // scoops, consonants and random pitch noise should not be labelled vibrato.
+    const std::size_t minLag = std::max<std::size_t> (2, static_cast<std::size_t> (std::floor (1.0 / (8.0 * hop))));
+    const std::size_t maxLag = std::min<std::size_t> (hp.size() / 3,
+        static_cast<std::size_t> (std::ceil (1.0 / (4.0 * hop))));
+    if (maxLag <= minLag) return false;
+    double best = -1.0;
+    std::size_t bestLag = 0;
+    for (std::size_t lag = minLag; lag <= maxLag; ++lag)
+    {
+        double cross = 0.0, ea = 0.0, eb = 0.0;
+        for (std::size_t i = lag; i < hp.size(); ++i)
+        {
+            const double a = hp[i], b = hp[i - lag];
+            cross += a * b; ea += a * a; eb += b * b;
+        }
+        const double corr = cross / std::sqrt (std::max (1.0e-20, ea * eb));
+        if (corr > best) { best = corr; bestLag = lag; }
+    }
+    if (bestLag == 0 || best < 0.28) return false;
+    const double rate = 1.0 / (static_cast<double> (bestLag) * hop);
     if (rate < 4.0 || rate > 8.0) return false;
     if (rateHz) *rateHz = rate;
     if (depthCents) *depthCents = rms * std::sqrt (2.0);
@@ -44,14 +76,47 @@ bool noteHasNaturalVibrato (const EditNote& en, const std::vector<PitchFrame>& f
     return measureNaturalVibrato (en, fr, hop, nullptr, nullptr);
 }
 
+namespace
+{
+bool noteHasUsableVoicing (const EditNote& en, const std::vector<PitchFrame>& fr, double hop)
+{
+    if (fr.empty() || ! std::isfinite (hop) || hop <= 0.0) return false;
+    const std::size_t first = std::min (en.note.firstFrame, fr.size());
+    const std::size_t last = std::min (en.note.lastFrame, fr.size() - 1);
+    if (first > last) return false;
+    std::size_t voiced = 0;
+    double confidence = 0.0;
+    for (std::size_t i = first; i <= last; ++i)
+        if (fr[i].voiced && std::isfinite (fr[i].midi))
+        { ++voiced; confidence += clampValue (static_cast<double> (fr[i].confidence), 0.0, 1.0); }
+    const std::size_t total = last - first + 1;
+    const std::size_t minFrames = static_cast<std::size_t> (std::ceil (0.12 / hop));
+    return voiced >= std::max<std::size_t> (3, minFrames)
+        && static_cast<double> (voiced) / static_cast<double> (total) >= 0.55
+        && confidence / static_cast<double> (voiced) >= 0.25;
+}
+} // namespace
+
 double notePitchSpread (const EditNote& en, const std::vector<PitchFrame>& fr, double hop)
 {
-    const std::size_t skip = static_cast<std::size_t> (0.03 / hop) + 1;
-    const std::size_t a = en.note.firstFrame + skip, b = en.note.lastFrame > skip ? en.note.lastFrame - skip : 0;
+    if (fr.empty() || ! std::isfinite (hop) || hop <= 0.0 || ! std::isfinite (en.note.midiPitch)) return 0.0;
+    const std::size_t first = std::min (en.note.firstFrame, fr.size());
+    const std::size_t last = std::min (en.note.lastFrame, fr.size() - 1);
+    if (first >= last) return 0.0;
+    const std::size_t skip = static_cast<std::size_t> (std::min (10000.0, std::floor (0.03 / hop))) + 1;
+    const std::size_t a = std::min (last, first + std::min (skip, last - first));
+    const std::size_t b = last > skip ? last - skip : first;
     if (b <= a) return 0.0;
-    double e = 0; std::size_t n = 0;
-    for (std::size_t k = a; k <= b; ++k) if (fr[k].voiced) { const double d = (fr[k].midi - en.note.midiPitch) * 100.0; e += d * d; ++n; }
-    return n ? std::sqrt (e / static_cast<double> (n)) : 0.0;
+    double energy = 0.0;
+    std::size_t count = 0;
+    for (std::size_t k = a; k <= b; ++k)
+        if (fr[k].voiced && std::isfinite (fr[k].midi))
+        {
+            const double cents = (fr[k].midi - en.note.midiPitch) * 100.0;
+            energy += cents * cents;
+            ++count;
+        }
+    return count ? std::sqrt (energy / static_cast<double> (count)) : 0.0;
 }
 
 std::vector<int> findRunEndings (const std::vector<EditNote>& notes)
@@ -110,7 +175,7 @@ std::vector<MagicDecision> analyseForVibrato (const std::vector<EditNote>& notes
         const EditNote& n = notes[i];
         MagicDecision d;
         const double dur = n.note.endSec - n.note.startSec;
-        if (n.edit.deleted || noteHasNaturalVibrato (n, fr, hop) || notePitchSpread (n, fr, hop) > maxSpread) { out[i] = d; continue; }
+        if (n.edit.deleted || ! noteHasUsableVoicing (n, fr, hop) || noteHasNaturalVibrato (n, fr, hop) || notePitchSpread (n, fr, hop) > maxSpread) { out[i] = d; continue; }
 
         if (ms.style == 1)   // RUN: only the endings of runs / melismas, entering late
         {
@@ -154,6 +219,7 @@ int applyMagicVibrato (std::vector<EditNote>& notes, const std::vector<PitchFram
             // Preserve existing natural vibrato to avoid stacking two oscillators.
             const double duration = notes[i].note.endSec - notes[i].note.startSec;
             if (! selection.empty() && ! decision.apply && ! e.deleted && duration >= 0.25
+                && noteHasUsableVoicing (notes[i], fr, hop)
                 && ! noteHasNaturalVibrato (notes[i], fr, hop))
             {
                 decision.apply = true;

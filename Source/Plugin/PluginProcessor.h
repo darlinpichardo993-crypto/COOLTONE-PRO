@@ -186,7 +186,7 @@ private:
     int abCurrent = 0;
 
     // audio thread state
-    double currentSR = 44100.0;
+    std::atomic<double> currentSR { 44100.0 };
     std::atomic<bool> internalPlaying { false }, loopEnabled { false };
     std::atomic<juce::int64> internalPos { 0 }, lastPlayPos { 0 }, loopStart { 0 }, loopEnd { 0 };
     std::atomic<double> lastBpm { 120.0 };

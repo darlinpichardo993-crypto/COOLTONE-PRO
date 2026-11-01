@@ -25,8 +25,11 @@ struct Rng { std::uint32_t s; explicit Rng (std::uint32_t x) : s (x ? x : 77u) {
 std::vector<MelismaStep> generateMelisma (double t0, double t1, double base, std::uint16_t mask, const MelismaParams& p, std::uint32_t seed)
 {
     std::vector<MelismaStep> out;
+    if (! std::isfinite (t0) || ! std::isfinite (t1) || ! std::isfinite (base)
+        || ! std::isfinite (p.lengthFrac) || ! std::isfinite (p.humanize) || t1 <= t0)
+        return out;
     const double dur = t1 - t0;
-    if (dur < 0.2) return out;
+    if (dur < 0.2 || dur > 600.0) return out;
 
     // pitch ladder (allowed MIDI notes, or chromatic when scale lock is off)
     std::vector<int> ladder;
@@ -40,7 +43,8 @@ std::vector<MelismaStep> generateMelisma (double t0, double t1, double base, std
 
     // limit the step count so that no step is shorter than ~45 ms
     const double runLen = dur * clampValue (p.lengthFrac, 0.1, 1.0);
-    int N = std::max (2, p.numNotes);
+    const double humanize = clampValue (p.humanize, 0.0, 1.0);
+    int N = std::max (2, std::min (12, p.numNotes));
     while (N > 2 && (runLen / (N - 1)) < 0.045) --N;
 
     const int sIdx = idxAt (p.startDegree), eIdx = idxAt (p.endDegree);
@@ -75,7 +79,7 @@ std::vector<MelismaStep> generateMelisma (double t0, double t1, double base, std
         if (p.rhythm == 1) wi = (i % 2 == 0) ? 1.3 : 0.7;
         else if (p.rhythm == 2) wi = 1.5 - u;
         else if (p.rhythm == 3) wi = 0.5 + u;
-        wi *= 1.0 + p.humanize * 0.3 * (rng.uni() * 2.0 - 1.0);
+        wi *= 1.0 + humanize * 0.3 * (rng.uni() * 2.0 - 1.0);
         w[static_cast<std::size_t> (i)] = std::max (0.2, wi);
     }
     double sum = 0; for (double x : w) sum += x;
