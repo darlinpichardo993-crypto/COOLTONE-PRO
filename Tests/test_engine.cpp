@@ -588,3 +588,14 @@ TEST (magic_vibrato_skips_unvoiced_or_unreliable_notes)
     CHECK (applyMagicVibrato (notes, frames, an.hop, settings, { 0 }, false, 91) == 0);
     CHECK (! notes[0].edit.vibrato);
 }
+
+TEST (high_sample_rate_analysis_is_downsampled_without_pitch_shift)
+{
+    const double sr = 96000.0;
+    auto clip = melody (sr, { { 57.0, 1.0, 0.0 } });
+    auto an = analyseClip (clip);
+    CHECK (! an.frames.empty());
+    CHECK (an.notes.size() == 1);
+    CHECK_NEAR (an.notes[0].note.midiPitch, 57.0, 0.12);
+    CHECK (an.hop > 0.009 && an.hop < 0.011);
+}
