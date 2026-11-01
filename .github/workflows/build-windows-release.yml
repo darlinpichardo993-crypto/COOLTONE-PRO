@@ -1,0 +1,64 @@
+name: COOLTONE Windows Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-release:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure x64 Release
+        run: cmake -S . -B build -A x64 -DCOOLTONE_BUILD_TESTS=ON -DCOOLTONE_BUILD_PLUGIN=ON
+
+      - name: Build VST3, Standalone and tests
+        run: cmake --build build --config Release --parallel 2
+
+      - name: Run DSP tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Verify build outputs
+        shell: pwsh
+        run: |
+          $required = @(
+            "build/COOLTONE_artefacts/Release/VST3/COOLTONE.vst3/Contents/x86_64-win/COOLTONE.vst3",
+            "build/COOLTONE_artefacts/Release/Standalone/COOLTONE.exe"
+          )
+          foreach ($path in $required) {
+            if (-not (Test-Path $path)) { throw "Missing build output: $path" }
+          }
+
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Setup.exe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "installer\COOLTONE.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+      - name: Prepare portable package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build/COOLTONE_artefacts/Release/VST3/COOLTONE.vst3","build/COOLTONE_artefacts/Release/Standalone/COOLTONE.exe","README.md" -DestinationPath "dist/COOLTONE_portable.zip" -Force
+
+      - name: Upload Windows installer and portable build
+        uses: actions/upload-artifact@v4
+        with:
+          name: COOLTONE-Windows-Release
+          path: |
+            dist/COOLTONE_Setup.exe
+            dist/COOLTONE_portable.zip
+          if-no-files-found: error
+          retention-days: 30
