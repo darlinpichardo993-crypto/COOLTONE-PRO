@@ -1,7 +1,8 @@
 #include "AudioEngine.h"
 #include "DSPUtilities.h"
 #include <algorithm>
-#include <cmath>\n#include <limits>
+#include <cmath>
+#include <limits>
 
 namespace cooltone
 {
